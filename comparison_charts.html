@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ApexMQTT vs EMQX - QoS0/1/2 吞吐对比图表</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --blue: #0071e3;
+      --orange: #ff7b00;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 32px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto 24px auto;
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      padding: 22px 22px 18px 22px;
+      overflow: clip;
+    }
+    h2 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+      text-align: center;
+    }
+    .meta {
+      margin: 8px 0 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    canvas {
+      display: block;
+      width: 100% !important;
+      height: 420px !important;
+      max-height: none;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+    @media (min-width: 980px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>QoS 0（payload=256B，topic=bench/1，sub=10，pub=4000）A/B 对比</h2>
+    <div class="meta">
+      <div><b>口径</b>：使用 <code>raw.csv</code> 中单调计数器的相邻差分，并用 <code>time_utc</code> 的真实 Δt 换算为每秒速率；稳态取采集窗口末尾 60 秒的中位数。</div>
+      <div><b>数据来源</b>：</div>
+      <div>- A 组（ApexMQTT）：<code>bin/metrics/runs/broker-A-axmq-qos0-256-1to10-run1-20251230T135910Z/raw.csv</code></div>
+      <div>- B 组（EMQX）：<code>bin/metrics/runs/broker-B-emqx-qos0-256-1to10-run1-20251230T143620Z/raw.csv</code></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>Broker 网络吞吐（MB/s）</h2>
+      <canvas id="bwChart"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：RX 表示 pub→broker；TX 表示 broker→sub（交付方向）。</div>
+      </div>
+    </div>
+    <div>
+      <h2>Broker 调度与 TCP 重传（辅助）</h2>
+      <canvas id="auxChart"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：ctxt/s 按 <code>/proc/stat</code> 中 ctxt 差分计算；tcp_retrans/s 按 <code>/proc/net/snmp</code> 中 <code>RetransSegs</code> 差分计算。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>QoS 1（payload=256B，topic=bench/1，sub=10，pub=4000）A/B 对比</h2>
+    <div class="meta">
+      <div><b>口径</b>：同上（真实 Δt + 末尾 60 秒中位数）。</div>
+      <div><b>数据来源</b>：</div>
+      <div>- A 组（ApexMQTT）：<code>bin/metrics/runs/broker-A-axmq-qos1-256-1to10-run1-20251230T160214Z/raw.csv</code></div>
+      <div>- B 组（EMQX）：<code>bin/metrics/runs/broker-B-emqx-qos1-256-1to10-run1-20251230T161113Z/raw.csv</code></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>Broker 网络吞吐（MB/s）</h2>
+      <canvas id="bwChartQos1"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：RX 表示 pub→broker；TX 表示 broker→sub（交付方向）。</div>
+      </div>
+    </div>
+    <div>
+      <h2>Broker 调度与 TCP 重传（辅助）</h2>
+      <canvas id="auxChartQos1"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：ctxt/s 按 <code>/proc/stat</code> 中 ctxt 差分计算；tcp_retrans/s 按 <code>/proc/net/snmp</code> 中 <code>RetransSegs</code> 差分计算。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>QoS 2（payload=256B，topic=bench/1，sub=10，pub=4000）A/B 对比</h2>
+    <div class="meta">
+      <div><b>口径</b>：同上（真实 Δt + 末尾 60 秒中位数）。</div>
+      <div><b>数据来源</b>：</div>
+      <div>- A 组（ApexMQTT）：<code>bin/metrics/runs/broker-A-axmq-qos2-256-1to10-run1-20251230T164748Z/raw.csv</code></div>
+      <div>- B 组（EMQX）：<code>bin/metrics/runs/broker-B-emqx-qos2-256-1to10-run1-20251230T170443Z/raw.csv</code></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>Broker 网络吞吐（MB/s）</h2>
+      <canvas id="bwChartQos2"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：RX 表示 pub→broker；TX 表示 broker→sub（交付方向）。</div>
+      </div>
+    </div>
+    <div>
+      <h2>Broker 调度与 TCP 重传（辅助）</h2>
+      <canvas id="auxChartQos2"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：ctxt/s 按 <code>/proc/stat</code> 中 ctxt 差分计算；tcp_retrans/s 按 <code>/proc/net/snmp</code> 中 <code>RetransSegs</code> 差分计算。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>AXMQ N2N（topic=bench/nn/%i，N=4000，payload=256B）QoS0/1/2</h2>
+    <div class="meta">
+      <div><b>口径</b>：与上面一致（真实 Δt + 末尾 60 秒中位数；QoS2 若末尾空闲则需结合 run 说明）。</div>
+      <div><b>数据来源</b>：</div>
+      <div>- QoS0：<code>bin/metrics/runs1/broker-A-axmq-qos0-256-N2N-run1-20251231T153628Z/raw.csv</code></div>
+      <div>- QoS1：<code>bin/metrics/runs1/broker-A-axmq-qos1-256-N2N-run1-20251231T154612Z/raw.csv</code></div>
+      <div>- QoS2：<code>bin/metrics/runs1/broker-A-axmq-qos2-256-N2N-run1-20251231T155531Z/raw.csv</code></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>网络吞吐（MB/s）</h2>
+      <canvas id="bwChartN2N"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：该图为 AXMQ 单产品在 QoS0/1/2 下的 RX/TX 对比（非 A/B）。</div>
+      </div>
+    </div>
+    <div>
+      <h2>调度与 TCP 重传（辅助）</h2>
+      <canvas id="auxChartN2N"></canvas>
+      <div class="meta">
+        <div><b>说明</b>：ctxt/s 与 tcp_retrans/s；QoS2 因末尾空闲段可能显示接近 0。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>N2N A/B（topic=bench/nn/%i，N=4000，payload=256B）QoS0/1/2</h2>
+    <div class="meta">
+      <div><b>口径</b>：真实 Δt + 末尾 60 秒中位数。</div>
+      <div><b>数据来源（A组 AXMQ）</b>：</div>
+      <div>- QoS0：<code>bin/metrics/runs1/broker-A-axmq-qos0-256-N2N-run1-20251231T153628Z/raw.csv</code></div>
+      <div>- QoS1：<code>bin/metrics/runs1/broker-A-axmq-qos1-256-N2N-run1-20251231T154612Z/raw.csv</code></div>
+      <div>- QoS2：<code>bin/metrics/runs1/broker-A-axmq-qos2-256-N2N-run1-20251231T155531Z/raw.csv</code></div>
+      <div><b>数据来源（B组 EMQX）</b>：</div>
+      <div>- QoS0：<code>bin/metrics/runs/broker-B-emqx-qos0-256-N2N-run1-20251231T080352Z/raw.csv</code></div>
+      <div>- QoS1：<code>bin/metrics/runs/broker-B-emqx-qos1-256-N2N-run1-20251231T081328Z/raw.csv</code></div>
+      <div>- QoS2：<code>bin/metrics/runs/broker-B-emqx-qos2-256-N2N-run1-20251231T082137Z/raw.csv</code></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>交付吞吐（TX broker→sub，MB/s）A/B</h2>
+      <canvas id="txChartN2NAB"></canvas>
+      <div class="meta"><div><b>说明</b>：越高表示 broker→sub 交付侧吞吐越强。</div></div>
+    </div>
+    <div>
+      <h2>网络入口（RX pub→broker，MB/s）A/B</h2>
+      <canvas id="rxChartN2NAB"></canvas>
+      <div class="meta"><div><b>说明</b>：pub→broker 入口侧吞吐。</div></div>
+    </div>
+  </div>
+
+  <div class="container grid">
+    <div>
+      <h2>ctxt/s（调度开销）A/B</h2>
+      <canvas id="ctxtChartN2NAB"></canvas>
+    </div>
+    <div>
+      <h2>tcp_retrans/s（TCP 重传）A/B</h2>
+      <canvas id="retransChartN2NAB"></canvas>
+    </div>
+  </div>
+
+  <script>
+    // Data: median of last 60s, computed from raw.csv using real Δt.
+    // Keep x-axis labels short to avoid clipping/overflow on screenshots.
+    const groups = ["ApexMQTT", "EMQX"];
+
+    const qos0 = {
+      bw: {
+        rx_MBps: [93.8, 88.4],
+        tx_MBps: [712.3, 8.8],
+      },
+      aux: {
+        ctxt_s: [535827, 280209],
+        retrans_s: [0.0, 0.0],
+      }
+    };
+
+    const qos1 = {
+      bw: {
+        rx_MBps: [71.4, 72.1],
+        tx_MBps: [50.0, 15.3],
+      },
+      aux: {
+        ctxt_s: [482421, 329059],
+        retrans_s: [2423.0, 6245.0],
+      }
+    };
+
+    const qos2 = {
+      bw: {
+        rx_MBps: [36.2, 58.5],
+        tx_MBps: [59.6, 20.2],
+      },
+      aux: {
+        ctxt_s: [133344, 60969],
+        retrans_s: [17.0, 0.0],
+      }
+    };
+
+    // AXMQ N2N (topic template %i, N=4000) – values from runs/ (Δt + last60s median).
+    const axmqN2N = {
+      labels: ["QoS0", "QoS1", "QoS2"],
+      rx_MBps: [94.4, 60.6, 36.6],
+      tx_MBps: [92.7, 64.3, 41.3],
+      ctxt_s: [260016, 265949, 60488],
+      retrans_s: [0.0, 4675.0, 1.0],
+    };
+
+    const emqxN2N = {
+      labels: ["QoS0", "QoS1", "QoS2"],
+      rx_MBps: [100.5, 48.1, 29.2],
+      tx_MBps: [92.5, 56.7, 32.8],
+      ctxt_s: [48550, 69308, 231542],
+      retrans_s: [0.0, 0.0, 18458.0],
+    };
+
+    function renderBandwidthChart(canvasId, bw) {
+      const el = document.getElementById(canvasId);
+      if (!el) return;
+      const ctx = el.getContext("2d");
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: groups,
+          datasets: [
+            {
+              label: "RX (pub→broker) MB/s",
+              data: bw.rx_MBps,
+              backgroundColor: "rgba(0, 113, 227, 0.25)",
+              borderColor: "rgba(0, 113, 227, 0.9)",
+              borderWidth: 1,
+            },
+            {
+              label: "TX (broker→sub) MB/s",
+              data: bw.tx_MBps,
+              backgroundColor: "rgba(255, 123, 0, 0.25)",
+              borderColor: "rgba(255, 123, 0, 0.9)",
+              borderWidth: 1,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { left: 8, right: 18, top: 6, bottom: 0 } },
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label: (ctx2) => `${ctx2.dataset.label}: ${ctx2.parsed.y.toFixed(1)} MB/s`
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxRotation: 0, minRotation: 0, autoSkip: false } },
+            y: { beginAtZero: true, title: { display: true, text: "MB/s" } }
+          }
+        }
+      });
+    }
+
+    function renderAuxChart(canvasId, aux) {
+      const el = document.getElementById(canvasId);
+      if (!el) return;
+      const ctx = el.getContext("2d");
+
+      // Draw value labels on bars (including 0), so screenshots won't look like "missing data".
+      const valueLabelPlugin = {
+        id: "valueLabelPlugin",
+        afterDatasetsDraw(chart) {
+          const { ctx: c } = chart;
+          c.save();
+          c.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+          c.fillStyle = "#4b4b4f";
+          c.textAlign = "center";
+          c.textBaseline = "bottom";
+          chart.data.datasets.forEach((dataset, datasetIndex) => {
+            const meta = chart.getDatasetMeta(datasetIndex);
+            if (meta.hidden) return;
+            meta.data.forEach((element, index) => {
+              const raw = dataset.data[index];
+              let text;
+              if (dataset.label === "tcp_retrans/s") {
+                text = Number(raw).toFixed(2);
+              } else {
+                text = Math.round(Number(raw)).toLocaleString();
+              }
+              const x = element.x;
+              const y = element.y;
+              // If the bar is 0, element.y sits on the axis line; lift label a bit.
+              const yText = y - 6;
+              c.fillText(text, x, yText);
+            });
+          });
+          c.restore();
+        }
+      };
+
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: groups,
+          datasets: [
+            {
+              type: "bar",
+              label: "ctxt/s",
+              data: aux.ctxt_s,
+              yAxisID: "yCtxt",
+              backgroundColor: "rgba(0, 113, 227, 0.25)",
+              borderColor: "rgba(0, 113, 227, 0.9)",
+              borderWidth: 1,
+            },
+            {
+              type: "bar",
+              label: "tcp_retrans/s",
+              data: aux.retrans_s,
+              yAxisID: "yRetrans",
+              backgroundColor: "rgba(255, 123, 0, 0.25)",
+              borderColor: "rgba(255, 123, 0, 0.9)",
+              borderWidth: 1,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { left: 8, right: 28, top: 6, bottom: 0 } },
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label: (ctx2) => {
+                  const v = ctx2.parsed.y;
+                  if (ctx2.dataset.label === "tcp_retrans/s") {
+                    return `${ctx2.dataset.label}: ${v.toFixed(2)}/s`;
+                  }
+                  return `${ctx2.dataset.label}: ${Math.round(v).toLocaleString()}/s`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxRotation: 0, minRotation: 0, autoSkip: false } },
+            yCtxt: {
+              position: "left",
+              beginAtZero: true,
+              title: { display: true, text: "ctxt/s" },
+              ticks: { padding: 6, callback: (v) => v.toLocaleString() }
+            },
+            yRetrans: {
+              position: "right",
+              beginAtZero: true,
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "tcp_retrans/s" },
+              ticks: { padding: 6 }
+            }
+          }
+        }
+        ,
+        plugins: [valueLabelPlugin]
+      });
+    }
+
+    // Render all sections (QoS0/QoS1/QoS2).
+    renderBandwidthChart("bwChart", qos0.bw);
+    renderAuxChart("auxChart", qos0.aux);
+
+    renderBandwidthChart("bwChartQos1", qos1.bw);
+    renderAuxChart("auxChartQos1", qos1.aux);
+
+    renderBandwidthChart("bwChartQos2", qos2.bw);
+    renderAuxChart("auxChartQos2", qos2.aux);
+
+    // N2N chart (AXMQ only, QoS0/1/2).
+    (function renderN2N() {
+      const bwEl = document.getElementById("bwChartN2N");
+      const auxEl = document.getElementById("auxChartN2N");
+      if (!bwEl || !auxEl) return;
+
+      new Chart(bwEl.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: axmqN2N.labels,
+          datasets: [
+            {
+              label: "RX (pub→broker) MB/s",
+              data: axmqN2N.rx_MBps,
+              backgroundColor: "rgba(0, 113, 227, 0.25)",
+              borderColor: "rgba(0, 113, 227, 0.9)",
+              borderWidth: 1,
+            },
+            {
+              label: "TX (broker→sub) MB/s",
+              data: axmqN2N.tx_MBps,
+              backgroundColor: "rgba(255, 123, 0, 0.25)",
+              borderColor: "rgba(255, 123, 0, 0.9)",
+              borderWidth: 1,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { left: 8, right: 18, top: 6, bottom: 0 } },
+          plugins: {
+            legend: { position: "top" },
+            tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} MB/s` } }
+          },
+          scales: {
+            x: { ticks: { maxRotation: 0, minRotation: 0 } },
+            y: { beginAtZero: true, title: { display: true, text: "MB/s" } }
+          }
+        }
+      });
+
+      // Aux for N2N (same style as renderAuxChart, but x labels are QoS0/1/2)
+      const valueLabelPlugin = {
+        id: "valueLabelPluginN2N",
+        afterDatasetsDraw(chart) {
+          const { ctx } = chart;
+          ctx.save();
+          ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+          ctx.fillStyle = "#4b4b4f";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          chart.data.datasets.forEach((dataset, datasetIndex) => {
+            const meta = chart.getDatasetMeta(datasetIndex);
+            if (meta.hidden) return;
+            meta.data.forEach((element, index) => {
+              const raw = dataset.data[index];
+              const text = dataset.label === "tcp_retrans/s"
+                ? Number(raw).toFixed(2)
+                : Math.round(Number(raw)).toLocaleString();
+              ctx.fillText(text, element.x, element.y - 6);
+            });
+          });
+          ctx.restore();
+        }
+      };
+
+      new Chart(auxEl.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: axmqN2N.labels,
+          datasets: [
+            {
+              type: "bar",
+              label: "ctxt/s",
+              data: axmqN2N.ctxt_s,
+              yAxisID: "yCtxt",
+              backgroundColor: "rgba(0, 113, 227, 0.25)",
+              borderColor: "rgba(0, 113, 227, 0.9)",
+              borderWidth: 1,
+            },
+            {
+              type: "bar",
+              label: "tcp_retrans/s",
+              data: axmqN2N.retrans_s,
+              yAxisID: "yRetrans",
+              backgroundColor: "rgba(255, 123, 0, 0.25)",
+              borderColor: "rgba(255, 123, 0, 0.9)",
+              borderWidth: 1,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { left: 8, right: 28, top: 6, bottom: 0 } },
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label: (c) => {
+                  const v = c.parsed.y;
+                  return c.dataset.label === "tcp_retrans/s"
+                    ? `${c.dataset.label}: ${v.toFixed(2)}/s`
+                    : `${c.dataset.label}: ${Math.round(v).toLocaleString()}/s`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxRotation: 0, minRotation: 0 } },
+            yCtxt: { position: "left", beginAtZero: true, title: { display: true, text: "ctxt/s" }, ticks: { callback: (v) => v.toLocaleString() } },
+            yRetrans: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "tcp_retrans/s" } }
+          }
+        },
+        plugins: [valueLabelPlugin]
+      });
+    })();
+
+    // N2N A/B charts (AXMQ vs EMQX, QoS0/1/2).
+    (function renderN2NAB() {
+      const labels = ["QoS0", "QoS1", "QoS2"];
+      const blue = "rgba(0, 113, 227, 0.25)";
+      const blueB = "rgba(0, 113, 227, 0.9)";
+      const orange = "rgba(255, 123, 0, 0.25)";
+      const orangeB = "rgba(255, 123, 0, 0.9)";
+
+      function bar(canvasId, titleY, aVals, bVals, fmt, valueText) {
+        const el = document.getElementById(canvasId);
+        if (!el) return;
+
+        const valueLabelPlugin = {
+          id: `valueLabelPlugin_${canvasId}`,
+          afterDatasetsDraw(chart) {
+            const { ctx } = chart;
+            ctx.save();
+            ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+            ctx.fillStyle = "#4b4b4f";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+              const meta = chart.getDatasetMeta(datasetIndex);
+              if (meta.hidden) return;
+              meta.data.forEach((element, index) => {
+                const raw = dataset.data[index];
+                const text = valueText ? valueText(raw) : String(raw);
+                const y = element.y - 6;
+                ctx.fillText(text, element.x, y);
+              });
+            });
+            ctx.restore();
+          }
+        };
+
+        new Chart(el.getContext("2d"), {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              { label: "ApexMQTT (A组)", data: aVals, backgroundColor: blue, borderColor: blueB, borderWidth: 1 },
+              { label: "EMQX (B组)", data: bVals, backgroundColor: orange, borderColor: orangeB, borderWidth: 1 },
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { left: 8, right: 18, top: 6, bottom: 0 } },
+            plugins: {
+              legend: { position: "top" },
+              tooltip: { callbacks: { label: (c) => fmt(c.dataset.label, c.parsed.y) } }
+            },
+            scales: {
+              x: { ticks: { maxRotation: 0, minRotation: 0 } },
+              y: { beginAtZero: true, title: { display: true, text: titleY } }
+            }
+          },
+          plugins: [valueLabelPlugin]
+        });
+      }
+
+      bar(
+        "txChartN2NAB",
+        "TX MB/s",
+        axmqN2N.tx_MBps,
+        emqxN2N.tx_MBps,
+        (name, v) => `${name}: ${v.toFixed(1)} MB/s`,
+        (v) => Number(v).toFixed(1)
+      );
+
+      bar(
+        "rxChartN2NAB",
+        "RX MB/s",
+        axmqN2N.rx_MBps,
+        emqxN2N.rx_MBps,
+        (name, v) => `${name}: ${v.toFixed(1)} MB/s`,
+        (v) => Number(v).toFixed(1)
+      );
+
+      bar(
+        "ctxtChartN2NAB",
+        "ctxt/s",
+        axmqN2N.ctxt_s,
+        emqxN2N.ctxt_s,
+        (name, v) => `${name}: ${Math.round(v).toLocaleString()}/s`,
+        (v) => Math.round(Number(v)).toLocaleString()
+      );
+
+      bar(
+        "retransChartN2NAB",
+        "tcp_retrans/s",
+        axmqN2N.retrans_s,
+        emqxN2N.retrans_s,
+        (name, v) => `${name}: ${v.toFixed(2)}/s`,
+        (v) => Number(v).toFixed(2)
+      );
+    })();
+  </script>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ApexMQTT vs EMQX Performance Comparison</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 40px;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin-bottom: 40px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #333;
+        }
+        canvas {
+            max-height: 500px;
+        }
+        .summary-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #0071e3;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>内存占用对比 (RSS MB)</h2>
+        <canvas id="memoryChart"></canvas>
+        <div class="summary-box">
+            <strong>数据解读：</strong> ApexMQTT (蓝色) 随连接数增长表现出极佳的线性度，1M 连接仅耗费 1.6GB 内存。EMQX (橙色) 在 1M 规模下表现符合主流分布式中间件的资源占用特征。
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>CPU 调度开销对比 (Context Switches/s)</h2>
+        <canvas id="ctxtChart"></canvas>
+        <div class="summary-box">
+            <strong>数据解读：</strong> ApexMQTT (蓝色) 上下文切换始终维持在极低位，证明了 D-IO 模型的调度效率。EMQX (橙色) 反映了大规模并发进程管理下的调度压力变化趋势。
+        </div>
+    </div>
+
+    <script>
+        const scales = ["Baseline", "100k", "500k", "1M"];
+        
+        // --- Memory Chart ---
+        const ctxMem = document.getElementById('memoryChart').getContext('2d');
+        new Chart(ctxMem, {
+            type: 'line',
+            data: {
+                labels: scales,
+                datasets: [
+                    {
+                        label: 'ApexMQTT (A组)',
+                        data: [25.3, 236.6, 816.3, 1630.1],
+                        borderColor: '#0071e3',
+                        backgroundColor: 'rgba(0, 113, 227, 0.1)',
+                        borderWidth: 3,
+                        pointRadius: 5,
+                        fill: true,
+                        tension: 0.2
+                    },
+                    {
+                        label: 'EMQX (B组)',
+                        data: [484.5, 2040.7, 9358.5, 18320.5],
+                        borderColor: '#ff7b00',
+                        backgroundColor: 'rgba(255, 123, 0, 0.1)',
+                        borderWidth: 3,
+                        pointRadius: 5,
+                        fill: true,
+                        tension: 0.2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'RSS Memory (MB)' }
+                    }
+                }
+            }
+        });
+
+        // --- Context Switch Chart ---
+        const ctxCtxt = document.getElementById('ctxtChart').getContext('2d');
+        new Chart(ctxCtxt, {
+            type: 'line',
+            data: {
+                labels: scales,
+                datasets: [
+                    {
+                        label: 'ApexMQTT (A组)',
+                        data: [4865, 8362, 11595, 13193],
+                        borderColor: '#0071e3',
+                        borderWidth: 3,
+                        pointStyle: 'circle',
+                        pointRadius: 5,
+                        tension: 0.2
+                    },
+                    {
+                        label: 'EMQX (B组)',
+                        data: [3016, 52861, 86500, 57434],
+                        borderColor: '#ff7b00',
+                        borderWidth: 3,
+                        pointStyle: 'rectRot',
+                        pointRadius: 6,
+                        tension: 0.2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Context Switches per Second' }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,36 @@
+time_utc=2025-12-30T08:36:52Z
+hostname=iZwz98cc88moyz436qmlj0Z
+uname=Linux iZwz98cc88moyz436qmlj0Z 6.8.0-88-generic #89-Ubuntu SMP PREEMPT_DYNAMIC Sat Oct 11 01:02:46 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux
+kernel=6.8.0-88-generic
+cpu_count=24
+ip_addr=
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host noprefixroute 
+       valid_lft forever preferred_lft forever
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP group default qlen 1000
+    link/ether 00:16:3e:22:57:c7 brd ff:ff:ff:ff:ff:ff
+    altname enp0s5
+    altname ens5
+    inet 172.28.130.87/20 metric 100 brd 172.28.143.255 scope global dynamic eth0
+       valid_lft 1892153978sec preferred_lft 1892153978sec
+    inet6 fe80::216:3eff:fe22:57c7/64 scope link 
+       valid_lft forever preferred_lft forever
+
+ip_route=
+default via 172.28.143.253 dev eth0 proto dhcp src 172.28.130.87 metric 100 
+100.100.2.136 via 172.28.143.253 dev eth0 proto dhcp src 172.28.130.87 metric 100 
+100.100.2.138 via 172.28.143.253 dev eth0 proto dhcp src 172.28.130.87 metric 100 
+172.28.128.0/20 dev eth0 proto kernel scope link src 172.28.130.87 metric 100 
+172.28.143.253 dev eth0 proto dhcp scope link src 172.28.130.87 metric 100 
+
+sysctl_selected=
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.netdev_max_backlog = 65536
+net.core.rmem_default = 4194304
+net.core.wmem_default = 4194304
+net.ipv4.tcp_rmem = 4096	4194304	16777216
+net.ipv4.tcp_wmem = 4096	4194304	16777216

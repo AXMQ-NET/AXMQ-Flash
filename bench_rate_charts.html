@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>emqtt_bench 输出可视化（sub/pub rate vs time）</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{
+      --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73;
+      --blue:#0071e3; --orange:#ff7b00; --border:#e5e5ea;
+    }
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);padding:24px;}
+    .container{max-width:1200px;margin:0 auto 18px auto;background:var(--card);border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.08);padding:18px 18px 14px 18px;overflow:clip;}
+    h2{margin:0 0 10px 0;text-align:center;font-size:18px;}
+    .meta{color:var(--muted);font-size:13px;line-height:1.45;}
+    .row{display:grid;grid-template-columns:1fr;gap:12px;}
+    @media (min-width: 980px){ .row{grid-template-columns:1fr 1fr;} }
+    label{display:block;font-weight:600;font-size:13px;margin:8px 0 6px 0;}
+    textarea{
+      width:100%;min-height:220px;resize:vertical;border:1px solid var(--border);
+      border-radius:10px;padding:10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:12px;line-height:1.35;background:#fafafa;
+    }
+    .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-top:10px;}
+    .controls .left{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+    select,button{
+      border:1px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;color:var(--text);font-size:13px;
+    }
+    button{cursor:pointer;}
+    button.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
+    .gridCharts{display:grid;grid-template-columns:1fr;gap:16px;}
+    canvas{display:block;width:100% !important;height:420px !important;}
+    .hint{margin-top:8px;color:var(--muted);font-size:12px;}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#f1f1f3;border:1px solid var(--border);font-size:12px;color:var(--muted);}
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>emqtt_bench 输出可视化（A/B 对比折线图）</h2>
+    <div class="meta">
+      <div><span class="pill">用途</span> 把 <code>emqtt_bench sub</code> 或 <code>emqtt_bench pub</code> 的终端输出原样粘贴进来，即可得到 <b>rate vs time</b> 曲线，适合做“直观体验”截图；学术证据仍建议同时保留 Broker 侧 <code>raw.csv</code>（见 Reproducibility_Guide）。</div>
+      <div class="hint">支持解析：<code>5m32s recv total=58005398 rate=233026.00/sec</code> / <code>1m0s pub total=... rate=.../sec</code> / <code>1s connect_succ total=... rate=.../sec</code></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="controls">
+      <div class="left">
+        <label style="margin:0">曲线类型：</label>
+        <select id="seriesType">
+          <option value="recv">sub: recv rate (/sec)</option>
+          <option value="pub">pub: pub rate (/sec)</option>
+          <option value="connect_succ">connect_succ rate (/sec)</option>
+        </select>
+        <button class="primary" id="renderBtn">生成图表</button>
+        <button id="clearBtn">清空</button>
+      </div>
+      <div class="meta">建议：先截 <b>QoS1</b>、再截 <b>QoS2</b>，并在截图中保留页眉的“曲线类型”下拉框。</div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>输入 A 组（ApexMQTT）bench 输出</label>
+        <textarea id="logA" placeholder="粘贴 emqtt_bench 输出..."></textarea>
+      </div>
+      <div>
+        <label>输入 B 组（EMQX）bench 输出</label>
+        <textarea id="logB" placeholder="粘贴 emqtt_bench 输出..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="gridCharts">
+      <div>
+        <h2 id="chartTitle">rate vs time</h2>
+        <canvas id="rateChart"></canvas>
+        <div class="meta" id="chartMeta"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let chart;
+
+    function parseTimeToSeconds(s) {
+      // supports: "12s", "1m2s", "6m17s"
+      const m = s.match(/^(?:(\d+)m)?(\d+)s$/);
+      if (!m) return null;
+      const minutes = m[1] ? Number(m[1]) : 0;
+      const seconds = Number(m[2]);
+      return minutes * 60 + seconds;
+    }
+
+    function parseBenchLog(text, wantType) {
+      const points = [];
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        // example: "5m32s recv total=58005398 rate=233026.00/sec"
+        //          "1s connect_succ total=10 rate=9.98/sec"
+        const m = line.match(/^\s*(\d+(?:m\d+)?s)\s+(recv|pub|connect_succ)\s+total=\d+\s+rate=([0-9.]+)\/sec\s*$/);
+        if (!m) continue;
+        const t = parseTimeToSeconds(m[1]);
+        const typ = m[2];
+        const rate = Number(m[3]);
+        if (t === null || Number.isNaN(rate)) continue;
+        if (typ !== wantType) continue;
+        points.push({ t, rate });
+      }
+      // sort & de-dup by time (keep last)
+      points.sort((a,b) => a.t - b.t);
+      const dedup = new Map();
+      for (const p of points) dedup.set(p.t, p.rate);
+      const out = [...dedup.entries()].sort((a,b)=>a[0]-b[0]).map(([t,rate])=>({t,rate}));
+      return out;
+    }
+
+    function fmtSeriesType(type) {
+      if (type === "recv") return "sub: recv rate (/sec)";
+      if (type === "pub") return "pub: pub rate (/sec)";
+      if (type === "connect_succ") return "connect_succ rate (/sec)";
+      return type;
+    }
+
+    function render() {
+      const type = document.getElementById("seriesType").value;
+      const aText = document.getElementById("logA").value || "";
+      const bText = document.getElementById("logB").value || "";
+
+      const aPts = parseBenchLog(aText, type);
+      const bPts = parseBenchLog(bText, type);
+
+      const allTimes = [...new Set([...aPts.map(p=>p.t), ...bPts.map(p=>p.t)])].sort((x,y)=>x-y);
+      const aMap = new Map(aPts.map(p=>[p.t, p.rate]));
+      const bMap = new Map(bPts.map(p=>[p.t, p.rate]));
+
+      const labels = allTimes.map(t => {
+        const m = Math.floor(t/60);
+        const s = t%60;
+        return m>0 ? `${m}m${s}s` : `${s}s`;
+      });
+
+      const dataA = allTimes.map(t => aMap.has(t) ? aMap.get(t) : null);
+      const dataB = allTimes.map(t => bMap.has(t) ? bMap.get(t) : null);
+
+      const title = `A/B 对比：${fmtSeriesType(type)}（rate vs time）`;
+      document.getElementById("chartTitle").textContent = title;
+      document.getElementById("chartMeta").textContent =
+        `A 组点数: ${aPts.length}；B 组点数: ${bPts.length}。若出现大量空白点，通常是日志中未包含该类型行（例如只粘了 recv 而选择了 pub）。`;
+
+      const ctx = document.getElementById("rateChart").getContext("2d");
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "ApexMQTT (A组)",
+              data: dataA,
+              borderColor: "rgba(0, 113, 227, 0.9)",
+              backgroundColor: "rgba(0, 113, 227, 0.10)",
+              pointRadius: 0,
+              spanGaps: true,
+              tension: 0.15,
+            },
+            {
+              label: "EMQX (B组)",
+              data: dataB,
+              borderColor: "rgba(255, 123, 0, 0.9)",
+              backgroundColor: "rgba(255, 123, 0, 0.10)",
+              pointRadius: 0,
+              spanGaps: true,
+              tension: 0.15,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "top" },
+            tooltip: {
+              callbacks: {
+                label: (ctx2) => `${ctx2.dataset.label}: ${Number(ctx2.parsed.y).toLocaleString()} /sec`
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: "rate (/sec)" },
+              ticks: { callback: (v) => v.toLocaleString() }
+            },
+            x: {
+              ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 12 }
+            }
+          }
+        }
+      });
+    }
+
+    document.getElementById("renderBtn").addEventListener("click", render);
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      document.getElementById("logA").value = "";
+      document.getElementById("logB").value = "";
+      if (chart) chart.destroy();
+      chart = null;
+      document.getElementById("chartTitle").textContent = "rate vs time";
+      document.getElementById("chartMeta").textContent = "";
+    });
+  </script>
+</body>
+</html>
+
+
