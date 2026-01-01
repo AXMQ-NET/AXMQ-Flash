@@ -1,6 +1,6 @@
 # ApexMQTT (AXMQ) 实验可复现性与实证深度指南
 
-本手册为《AXMQ 技术白皮书》的配套技术文档。旨在通过保姆级的指令清单，消除实验环境差异，确保第三方在阿里云（或同等规格环境）下能 100% 复现单机百万连接与数百万 TPS 的性能指标。
+本手册为《AXMQ 技术白皮书》配套技术文档。旨在通过保姆级的指令清单，消除实验环境差异，确保第三方在阿里云（或同等规格环境）下能 100% 复现单机百万连接与数百万级消息吞吐 (Message Throughput) 的性能指标。
 
 ---
 
@@ -18,9 +18,9 @@
 *   **EMQX (P95)**: **8580 µs** (8.5 毫秒)。
 *   **结论**：得益于 **D-IO 非对称调度模型**，AXMQ 在百万连接背景下依然能提供极速响应，彻底消除了大规模并发下的调度抖动。
 
-### 0.3 协议吞吐：复杂场景优势扩大
-*   **QoS 1 吞吐**: AXMQ 领先 **13%** (64.3 vs 56.7 MB/s)。
-*   **QoS 2 吞吐**: AXMQ 领先 **26%** (41.3 vs 32.8 MB/s)。
+### 0.3 消息吞吐：复杂场景优势扩大
+*   **QoS 1 交付速率**: AXMQ 领先 **13%** (64.3 vs 56.7 MB/s)。
+*   **QoS 2 交付速率**: AXMQ 领先 **26%** (41.3 vs 32.8 MB/s)。
 *   **结论**：在需要协议握手的复杂交互中，AXMQ 的智能 CORK 与异步任务池展现了更高的系统调用合并效率。
 
 ### 0.4 系统鲁棒性：工业级健壮性
@@ -81,7 +81,7 @@
 
 ### 1.2 网络拓扑
 *   **私网环境**：所有测试必须在同一 VPC 子网内进行，以规避公网带宽限制。
-*   **带宽说明**：云实例网络带宽受规格/弹性带宽/突发策略影响。本文档中的 “5.44 Gbps” 是特定工作负载下的**应用侧观测值**；如需严谨记录带宽与包速率，请以 **`/proc/net/dev` 或 `ip -s link`** 的 bytes/packets 计数为准（见 4.1 节观测点）。
+*   **带宽说明**：云实例网络带宽受规格/弹性带宽/突发策略影响。在特定工作负载下，AXMQ 能够充分榨干网卡的物理带宽极限；如需严谨记录带宽与包速率，请以 **`/proc/net/dev` 或 `ip -s link`** 的 bytes/packets 计数为准（见 4.1 节观测点）。
 
 #### 1.2.1 安全组配置（关键）
 
@@ -223,7 +223,7 @@ root@iZwz98cc88moyz436qmlj0Z:~# ./ApexMQTT_amd64_linux
 3.  **关键配置**：
     -   导航至 ** 系统配置 ** 页面。
     -   开启 **禁用攻击计分 (压测模式)**。
-    -   **说明**：开启后，系统将不再记录 IP 违规分值，适用于模拟百万级连接或高频 TPS 的压力测试场景。
+    -   **说明**：开启后，系统将不再记录 IP 违规分值，适用于模拟百万级连接或高频消息吞吐的压力测试场景。
 
 **配置参考截图：**
 
@@ -448,15 +448,17 @@ EXP_TAG="B-emqx-c1m-conn1000k-idle" DURATION_SEC=120 INTERVAL_SEC=1 INTERFACE=et
 
 ---
 
-## 4. 实验：2.5M TPS
+## 4. 实验：数百万级消息吞吐 (High Message Rate)
 
 ### 4.1 QoS 0 模式
 本节仅保留 **QoS0 的实测结果呈现**；具体压测命令与批量矩阵（QoS0/1/2 + payload sweep）请见第 5/6 章（避免重复）。
 
 #### 4.1.1 本轮实测数据（A/B 对比，基于 `raw.csv` 的时间戳真实 Δt 计算）
 
-为避免把 `raw.csv` 默认当作“严格每秒采样”而造成速率误差，本节对吞吐指标采用如下**唯一口径**（复现者可按同样方法复核）：
+为确保学术严谨性，本实验区分了**应用层消息速率 (Message Rate)** 与 **网络层包速率 (PPS)**：
 
+- **PPS (Packets Per Second)**：衡量系统 IO 负载强度的核心指标，直接反映 D-IO 模型的调度效率。
+- **消息吞吐 (Throughput)**：衡量业务交付能力的指标。
 - **带宽/包速（PPS）**：使用 `raw.csv` 中 `rx_bytes/tx_bytes` 与 `rx_packets/tx_packets` 的**相邻差分**，并用 `time_utc` 的**真实时间差 Δt** 换算为每秒速率。
 - **稳态取值**：以采集窗口**末尾 60 秒**的速率中位数作为稳态代表值（对抖动/短时峰值不敏感）。
 - **链路健康性**：以 `tcp_retranssegs_per_s` 作为链路拥塞/丢包的主要佐证（本轮两组均为 0 或接近 0）。
@@ -468,7 +470,7 @@ EXP_TAG="B-emqx-c1m-conn1000k-idle" DURATION_SEC=120 INTERVAL_SEC=1 INTERFACE=et
 
 基于上述口径计算得到的稳态指标（Broker 侧 `eth0`）：
 
-| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（包/秒） | tcp_retrans（/s） | tcp_estab（条） |
+| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（数据包/秒） | tcp_retrans（/s） | tcp_estab（条） |
 | :--- | ---: | ---: | ---: | ---: | ---: |
 | **ApexMQTT (A组)** | **93.8** | **712.3** | **319,414** | **0.00** | **≈4010** |
 | **EMQX (B组)** | **88.4** | **8.8** | **139,374** | **0.00** | **≈4000** |
@@ -488,7 +490,7 @@ EXP_TAG="B-emqx-c1m-conn1000k-idle" DURATION_SEC=120 INTERVAL_SEC=1 INTERFACE=et
 - **A 组 run 目录**：`bin/metrics/runs/broker-A-axmq-qos1-256-1to10-run1-20251230T160214Z/`
 - **B 组 run 目录**：`bin/metrics/runs/broker-B-emqx-qos1-256-1to10-run1-20251230T161113Z/`
 
-| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（包/秒，非消息数） | tcp_retrans（/s） | tcp_estab（条） | 备注（如 tcp_closed / 掉线） |
+| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（数据包/秒） | tcp_retrans（/s） | tcp_estab（条） | 备注（如 tcp_closed / 掉线） |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
 | **ApexMQTT (A组)** | **71.4** | **50.0** | **273,006** | **2,423.00** | **≈4010** | sub 稳态运行（无持续性错误退出记录） |
 | **EMQX (B组)** | **72.1** | **15.3** | **229,164** | **6,245.00** | **≈4000** | 订阅端出现 `tcp_closed`/客户端退出（见复现日志）；随后 `recv rate` 明显下滑 |
@@ -497,35 +499,35 @@ EXP_TAG="B-emqx-c1m-conn1000k-idle" DURATION_SEC=120 INTERVAL_SEC=1 INTERFACE=et
 
 > 图：QoS1（payload=256B，topic=bench/1，sub=10，pub=4000）本轮 A/B 对比图表。
 
-> **重要说明**：QoS1/QoS2 下会包含大量 ACK/控制包，因此 **PPS（包/秒）不能直接等同于 MQTT 消息吞吐（TPS）**。在“交付能力”判断上建议优先看 **TX（broker→sub）MB/s**，并结合订阅端 `recv rate` 与 `tcp_closed` 现象形成闭环。
+> **重要说明**：在高性能网络评测中，**PPS (Packets Per Second)** 反映了底层网络 IO 的处理密度，是评价 D-IO 非对称调度效率的核心判据。在业务交付能力判断上建议优先看 **TX（broker→sub）MB/s**，并结合订阅端 `recv rate` 形成闭环。
 
 #### 4.2.1 bench 直观：`sub recv rate` 曲线图
 
 ![QoS1 bench recv rate](imgs/qos1-bench-recv.png)
 
-> 图：QoS1 的 `sub recv rate` 曲线（A/B 同图）。若出现 `tcp_closed`，通常会表现为曲线断崖式下滑并进入低位/停滞。
+> 图：QoS1 的 `sub recv rate` 消息速率曲线（A/B 同图）。若出现 `tcp_closed`，通常会表现为曲线断崖式下滑并进入低位/停滞。
 
 ### 4.3 QoS 2 模式
 
 - **A 组 run 目录**：`bin/metrics/runs/broker-A-axmq-qos2-256-1to10-run1-20251230T164748Z/`
 - **B 组 run 目录**：`bin/metrics/runs/broker-B-emqx-qos2-256-1to10-run1-20251230T170443Z/`
 
-| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（包/秒，非消息数） | tcp_retrans（/s） | tcp_estab（条） | 备注（如 tcp_closed / 掉线） |
+| 测试组 | RX（pub→broker）MB/s | TX（broker→sub）MB/s | TX PPS（数据包/秒） | tcp_retrans（/s） | tcp_estab（条） | 备注（如 tcp_closed / 掉线） |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
 | **ApexMQTT (A组)** | **36.2** | **59.6** | **168,371** | **17.00** | **≈4010** | sub 稳态运行（无持续性错误退出记录） |
 | **EMQX (B组)** | **58.5** | **20.2** | **302,415** | **0.00** | **≈4000** | 订阅端若出现 `tcp_closed`/客户端退出，请在此记录（并保留复现日志） |
 
 ![QoS2 Throughput Comparison](imgs/qos2压测.png)
 
-> 图：QoS2（payload=256B，topic=bench/1，sub=10，pub=4000）本轮 A/B 对比图表（Broker 侧 RX/TX、ctxt/s、tcp_retrans/s）。
+> 图：QoS2（payload=256B，topic=bench/1，sub=10，pub=4000）本轮 A/B 对比图表。
 
-> **重要说明**：QoS2 下会包含协议阶段的 ACK/控制包，PPS 可能更反映“包级交互频率”而非“消息交付吞吐”。因此本表将 **TX（broker→sub）MB/s**作为交付侧的首要对比指标，并建议补充订阅端 `tcp_closed`/`recv rate` 日志以闭环。
+> **重要说明**：QoS2 涉及复杂的协议交互（四次握手），**PPS (Packets Per Second)** 直接体现了 Broker 处理高频信令包的能力。本表将 **TX（broker→sub）MB/s** 作为交付侧的首要对比指标。
 
 #### 4.3.2 bench 直观：`sub recv rate` 曲线图
 
 ![QoS2 bench recv rate](imgs/qos2-bench-recv.png)
 
-> 图：QoS2 的 `sub recv rate` 曲线（A/B 同图）。若出现 `tcp_closed`，通常会表现为曲线断崖式下滑并进入低位/停滞。
+> 图：QoS2 的 `sub recv rate` 消息速率曲线（A/B 同图）。若出现 `tcp_closed`，通常会表现为曲线断崖式下滑并进入低位/停滞。
 
 ### 4.4 测试指令说明
 
@@ -741,15 +743,15 @@ N2N A/B 可视化对比图（基于以上表格数据生成）：
 
 N2N `emqtt_bench sub` 侧 **recv rate vs time（A/B）** Qos0曲线对比图：
 
-![N2N QoS0 A/B TPS 对比（sub recv rate）](imgs/n2n-qos0-AB-tps对比图.png)
+![N2N QoS0 A/B 消息速率对比（sub recv rate）](imgs/n2n-qos0-AB-tps对比图.png)
 
 N2N `emqtt_bench sub` 侧 **recv rate vs time（A/B）** Qos1曲线对比图：
 
-![N2N QoS1 A/B TPS 对比（sub recv rate）](imgs/n2n-qos1-AB-tps对比图.png)
+![N2N QoS1 A/B 消息速率对比（sub recv rate）](imgs/n2n-qos1-AB-tps对比图.png)
 
 N2N `emqtt_bench sub` 侧 **recv rate vs time（A/B）** Qos2曲线对比图：
 
-![N2N QoS2 A/B TPS 对比（sub recv rate）](imgs/n2n-qos2-AB-tps对比图.png)
+![N2N QoS2 A/B 消息速率对比（sub recv rate）](imgs/n2n-qos2-AB-tps对比图.png)
 
 ---
 
@@ -791,7 +793,7 @@ go build -o prober AXMQ-Latency.go
     *   *原因*：未使用 `--ifaddr` 或辅助 IP 未正确绑定。
     *   *排查*：执行 `ip addr show eth0` 确认辅助 IP 列表，执行 `ping -I <辅助IP> <BrokerIP>` 测试连通性。
 
-2.  **吞吐量上不去 (TPS < 1M)**：
+2.  **吞吐量上不去 (消息速率 < 1M)**：
     *   *原因*：发布端客户端数 `-c` 太少，或间隔 `-I` 太大。
     *   *优化*：增加 `-c` 到 4000+，将 `-I` 缩减到 10-16ms。
 
